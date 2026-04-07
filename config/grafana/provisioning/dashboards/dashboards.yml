@@ -1,0 +1,18 @@
+#-----dashboards.yml — Carpeta de dashboards de Grafana-----#
+#
+# Grafana carga automáticamente los dashboards de esta carpeta.
+#
+# Para añadir un dashboard: 
+#   - Descargar el JSON desde grafana.com/dashboards
+#   - Ponerlo en esta carpeta
+#   - Reiniciar Grafana
+
+
+apiVersion: 1
+
+providers:
+  - name: 'PXE-RPi4'
+    type: file
+    options:
+      # Grafana buscará ficheros .json de dashboards aquí
+      path: /etc/grafana/provisioning/dashboards

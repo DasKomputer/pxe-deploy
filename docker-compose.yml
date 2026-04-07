@@ -1,0 +1,102 @@
+#-----docker-compose.yml — Stack PXE-----#
+#
+# Este fichero levanta los servicios que hacen funcionar
+# el arranque por red (PXE):
+#
+#   - dnsmasq: reparte IPs (DHCP) y sirve ficheros de
+#              arranque (TFTP) a los equipos cliente
+#
+#   - samba:   comparte la ISO de Windows por red (SMB)
+#              para que el WinPE pueda acceder a ella
+#
+#   - nginx:   sirve los ficheros preseed de Debian
+#              por HTTP para la instalación desatendida
+#
+# Para levantarlo junto al stack de monitorización:
+#   docker compose -f docker-compose.yml -f docker-compose.monitor.yml up -d
+#
+# Para levantarlo solo (sin monitorización):
+#   docker compose -f docker-compose.yml up -d
+
+
+networks:
+  # Red interna de Docker para que los contenedores
+  # que no necesitan salir a la red física se comuniquen
+  # entre ellos por nombre (ej: http://nginx)
+  pxe-net:
+    driver: bridge
+
+
+services:
+
+  #-----dnsmasq — DHCP + TFTP-----#
+  #
+  # Se encarga de:
+  #   1. DHCP: cuando un equipo enciende y pide IP,
+  #            dnsmasq se la da del rango configurado
+  #   2. TFTP: le dice al equipo dónde está el fichero
+  #            de arranque y se lo sirve
+  #
+  # Usa "network_mode: host" porque el DHCP funciona
+  # por broadcast (manda mensajes a toda la red) y Docker
+  # por defecto bloquea eso. Con host, el contenedor
+  # usa directamente la red de la RPi.
+  dnsmasq:
+    image: 4km3/dnsmasq:latest
+    container_name: dnsmasq
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN   # Permiso para gestionar la red
+      - NET_RAW     # Permiso para enviar paquetes de bajo nivel
+    volumes:
+      # Montamos nuestra configuración dentro del contenedor
+      - ./config/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf:ro
+      # Montamos la carpeta con los ficheros de arranque (kernels, menús...)
+      - ./tftpboot:/tftpboot:ro
+
+
+  #-----samba — Share SMB para Windows-----#
+  #
+  # Windows no puede instalar desde HTTP como Debian.
+  # Necesita una ruta de red tipo \\192.168.100.1\win11
+  # Samba crea ese share para que el WinPE pueda acceder
+  # a la ISO expandida y al autounattend.xml.
+  #
+  # También usa "network_mode: host" porque el protocolo
+  # SMB/NetBIOS necesita acceso directo a la red.
+  samba:
+    image: dperson/samba:latest
+    container_name: samba
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      # Carpeta donde está la ISO de Windows expandida
+      - ./samba/win11:/win11:ro
+    # Creamos el usuario y el share con los valores del .env
+    command: >
+      -u "${SAMBA_USER};${SAMBA_PASSWORD}"
+      -s "win11;/win11;yes;no;no;${SAMBA_USER}"
+      -p
+
+
+  #-----nginx — Servidor web para los preseeds de Debian-----#
+  #
+  # El instalador de Debian necesita descargar el fichero
+  # preseed por HTTP para saber cómo instalarse solo.
+  # nginx sirve esos ficheros desde la carpeta unattended/.
+  #
+  # Cuando Debian arranque por PXE, descargará el preseed
+  # desde: http://192.168.100.1/preseed/preseed-cli.cfg
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: unless-stopped
+    networks:
+      - pxe-net
+    ports:
+      - "80:80"   # Puerto HTTP estándar
+    volumes:
+      # Servimos los ficheros preseed desde esta carpeta
+      - ./pxe/unattended:/usr/share/nginx/html/preseed:ro
+

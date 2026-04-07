@@ -1,0 +1,24 @@
+#-----datasources.yml — Fuentes de datos de Grafana-----#
+#
+# Grafana necesita saber de dónde sacar los datos
+# para mostrarlos en los dashboards.
+#
+# Este fichero se carga cuando Grafana arranca, para no tener 
+# que configurarlo a mano desde la web.
+
+
+apiVersion: 1
+
+datasources:
+
+  # Prometheus: fuente de métricas (CPU, RAM, contenedores...)
+  # isDefault: true significa que es la fuente por defecto
+  - name: Prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+
+  # Loki: fuente de logs (logs de contenedores y del sistema)
+  - name: Loki
+    type: loki
+    url: http://loki:3100

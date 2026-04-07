@@ -1,0 +1,191 @@
+#-----docker-compose.monitor.yml — Stack de Monitorización-----#
+#
+# Este fichero levanta todos los servicios de monitorización
+# y gestión. 
+#
+# Flujo de datos:
+#
+#   Node Exporter ──┐
+#                   ├──► Prometheus ──► Grafana (métricas)
+#   cAdvisor ───────┘
+#
+#   Promtail ──────────► Loki ───────► Grafana (logs)
+#
+#   Portainer: gestión visual de los contenedores
+#
+# Para levantarlo junto al stack PXE:
+#   docker compose -f docker-compose.yml -f docker-compose.monitor.yml up -d
+
+
+networks:
+  # Misma red que el stack PXE para que
+  # los contenedores de ambos ficheros puedan comunicarse
+  pxe-net:
+    driver: bridge
+
+
+volumes:
+  # Volúmenes persistentes: guardan los datos aunque
+  # el contenedor se reinicie o se borre
+
+  grafana-data:   # Dashboards y configuración de Grafana
+  prometheus-data: # Métricas históricas
+  loki-data:      # Logs almacenados
+  portainer-data: # Configuración de Portainer
+
+
+services:
+
+  #-----Prometheus — Base de datos de métricas-----#
+  #
+  # Prometheus consulta a Node Exporter
+  # y cAdvisor cada 15 segundos y guarda esos datos.
+  # Luego Grafana le pregunta a Prometheus para mostrarlos
+  # en los dashboards.
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    networks:
+      - pxe-net
+    ports:
+      - "9090:9090"   # Puedes acceder a la UI en :9090
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus   # Datos persistentes
+
+
+  #-----Node Exporter — Métricas del sistema de la RPi-----#
+  #
+  # Expone métricas del sistema operativo de la RPi:
+  # uso de CPU, RAM, temperatura, espacio en disco,
+  # tráfico de red...
+  # Prometheus las recoge y Grafana las muestra.
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    networks:
+      - pxe-net
+    ports:
+      - "9100:9100"
+    volumes:
+      # Necesita acceso al sistema de la RPi para leer métricas
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+
+
+  #-----cAdvisor — Métricas de los contenedores Docker-----
+  #
+  # Igual que Node Exporter pero para contenedores.
+  # Indica cuánta CPU y RAM consume cada contenedor
+  # individualmente (dnsmasq, samba, nginx...).
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    networks:
+      - pxe-net
+    ports:
+      - "8080:8080"
+    volumes:
+      # Necesita acceso a Docker y al sistema para leer métricas
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    privileged: true   # Necesita permisos especiales para leer métricas de Docker
+
+
+  #-----Loki — Base de datos de logs-----#
+  #
+  # Loki almacena los logs de todos los contenedores.
+  # Es como Prometheus pero para logs en lugar de métricas.
+  # Grafana le pregunta a Loki para mostrar los logs
+  # en los dashboards.
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: unless-stopped
+    networks:
+      - pxe-net
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./config/loki/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki   # Datos persistentes
+    command: -config.file=/etc/loki/local-config.yaml
+
+
+  #-----Promtail — Recoge logs y los manda a Loki-----#
+  #
+  # Promtail es el "agente" que va leyendo los logs de
+  # todos los contenedores Docker y los manda a Loki.
+  # Sin Promtail, Loki no tendría datos.
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    restart: unless-stopped
+    networks:
+      - pxe-net
+    volumes:
+      - ./config/promtail/promtail.yml:/etc/promtail/config.yml:ro
+      # Necesita acceso a los logs del sistema y de Docker
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+
+
+  #-----Grafana — Dashboards de métricas y logs-----#
+  #
+  # Es la interfaz visual donde se ve todo.
+  # Se conecta a Prometheus para mostrar métricas
+  # y a Loki para mostrar logs, todo en el mismo sitio.
+  # Accesible en: http://192.168.100.1:3000
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    networks:
+      - pxe-net
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana   # Datos persistentes
+      # Provisioning: Grafana carga automáticamente los
+      # datasources y dashboards de esta carpeta al arrancar
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      # Usuario y contraseña del .env
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false   # Que no se pueda registrar nadie más
+    depends_on:
+      - prometheus   # Espera a que Prometheus esté listo antes de arrancar
+      - loki
+
+
+  #-----Portainer — Gestión visual de contenedores-----#
+  #
+  # Interfaz web para ver y gestionar todos los contenedores
+  # sin usar la terminal. Puedes arrancarlos, pararlos,
+  # ver sus logs, etc.
+  # Accesible en: http://192.168.100.1:9000
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    networks:
+      - pxe-net
+    ports:
+      - "9000:9000"
+    volumes:
+      # Necesita acceso al socket de Docker para gestionarlo
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data   # Datos persistentes

@@ -1,0 +1,70 @@
+#-----default — Menú PXE para equipos con BIOS clásica-----#
+#
+# Este fichero define el menú que aparece en pantalla
+# cuando un equipo arranca por PXE con BIOS tradicional.
+#
+# Ubicación en: tftpboot/pxelinux.cfg/default
+
+
+# Usamos el módulo de menú gráfico
+UI menu.c32
+
+# No esperar a que el usuario pulse una tecla
+PROMPT 0
+
+# Tiempo de espera antes de arrancar la opción por defecto en décimas de segundo
+# 300 = 30 segundos
+TIMEOUT 300
+
+MENU TITLE === PXE Deploy RPi4 ===
+
+
+#-----Opciones de instalación de sistemas operativos-----#
+
+LABEL debian-cli
+  MENU LABEL Debian 13 -- CLI (sin escritorio)
+  KERNEL debian-cli/vmlinuz
+  # auto=true y priority=critical hacen que el instalador
+  # use el preseed sin hacer preguntas
+  # url= le dice dónde está el fichero preseed
+  APPEND initrd=debian-cli/initrd.gz auto=true priority=critical url=http://192.168.100.1/preseed/preseed-cli.cfg interface=auto quiet
+
+LABEL debian-gui
+  MENU LABEL Debian 13 -- GUI (GNOME)
+  KERNEL debian-gui/vmlinuz
+  APPEND initrd=debian-gui/initrd.gz auto=true priority=critical url=http://192.168.100.1/preseed/preseed-gui.cfg interface=auto quiet
+
+LABEL windows11
+  MENU LABEL Windows 11 Pro
+  # Windows arranca con memdisk cargando el WinPE como ISO
+  KERNEL memdisk
+  APPEND iso initrd=winpe/winpe.iso raw
+
+
+#-----Herramientas de diagnóstico y rescate-----#
+
+LABEL systemrescue
+  MENU LABEL SystemRescue (reparacion y recuperacion)
+  KERNEL systemrescue/vmlinuz
+  APPEND initrd=systemrescue/initrd.img archisobasedir=systemrescue
+
+LABEL clonezilla
+  MENU LABEL Clonezilla (clonado de discos)
+  KERNEL clonezilla/vmlinuz
+  APPEND initrd=clonezilla/initrd.img boot=live union=overlay
+
+LABEL memtest
+  MENU LABEL Memtest86+ (test de memoria RAM)
+  KERNEL memtest86/memtest
+
+
+
+#-----Arrancar desde el disco local del equipo-----#
+
+
+LABEL local
+  MENU LABEL Arrancar desde disco local
+  LOCALBOOT 0
+  # Esta es la opción por defecto si no se selecciona nada
+  MENU DEFAULT
+

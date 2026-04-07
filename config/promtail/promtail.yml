@@ -1,0 +1,44 @@
+#-----promtail.yml — Configuración de Promtail-----#
+#
+# Promtail recoge los logs y los manda a Loki.
+# Indicamos dónde están los logs y a qué Loki enviarlos.
+
+
+server:
+  http_listen_port: 9080
+
+
+# Fichero donde Promtail guarda por dónde va leyendo los logs
+# para no releer lo mismo si se reinicia
+positions:
+  filename: /tmp/positions.yaml
+
+
+# Mandamos los logs a Loki
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+
+scrape_configs:
+
+  #-----Logs de los contenedores Docker-----#
+  # Recoge los logs de los contenedores que están corriendo
+  - job_name: docker
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          # Ruta donde Docker guarda los logs de cada contenedor
+          __path__: /var/lib/docker/containers/*/*-json.log
+
+  #-----Logs del sistema de la RPi-----#
+  # Recoge el syslog de la Raspberry
+  - job_name: syslog
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: syslog
+          host: rpi4
+          __path__: /var/log/syslog

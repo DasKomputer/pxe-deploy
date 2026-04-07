@@ -1,0 +1,38 @@
+#-----loki.yml — Configuración de Loki-----#
+#
+# Loki es la base de datos donde se guardan los logs.
+
+
+# Sin autenticación, estamos en una red local cerrada
+auth_enabled: false
+
+
+server:
+  http_listen_port: 3100   # Puerto donde escucha Loki
+
+
+# Configuración de almacenamiento
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks   # Donde guarda los logs
+      rules_directory: /loki/rules
+  replication_factor: 1   # Solo una copia (somos un único servidor)
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+
+# Esquema de índices: cómo organiza Loki los logs internamente
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h   # Un índice por día
+
